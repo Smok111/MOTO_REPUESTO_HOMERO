@@ -1,0 +1,4 @@
+<resources>
+    <!-- Nombre principal de la aplicación mostrado en el dispositivo -->
+    <string name="app_name">MotoRepuestos Khaory</string>
+</resources>

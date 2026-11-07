@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "231732115912",
+    "project_id": "tallerkhaory",
+    "storage_bucket": "tallerkhaory.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:231732115912:android:acdf3c1a4bc5004856a8fd",
+        "android_client_info": {
+          "package_name": "Com.Moto_Kaori"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDcGqc53bMUkWmYmqxyu1CvELIZ_20vopI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

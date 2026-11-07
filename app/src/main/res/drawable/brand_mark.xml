@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Corona de transmisión: el centro calado conserva legibilidad en tamaños pequeños. -->
+    <path android:fillColor="#FF831F" android:fillType="evenOdd"
+        android:pathData="M45.7,23.1 L48.9,17.4 L59.1,17.4 L62.3,23.1 L67.9,19.7 L76.8,24.8 L76.6,31.4 L83.2,31.2 L88.3,40.1 L84.9,45.7 L90.6,48.9 L90.6,59.1 L84.9,62.3 L88.3,67.9 L83.2,76.8 L76.6,76.6 L76.8,83.2 L67.9,88.3 L62.3,84.9 L59.1,90.6 L48.9,90.6 L45.7,84.9 L40.1,88.3 L31.2,83.2 L31.4,76.6 L24.8,76.8 L19.7,67.9 L23.1,62.3 L17.4,59.1 L17.4,48.9 L23.1,45.7 L19.7,40.1 L24.8,31.2 L31.4,31.4 L31.2,24.8 L40.1,19.7 Z M54,30 A24,24 0,1 0,54 78 A24,24 0,1 0,54 30 Z" />
+    <!-- Rayo: energía y movimiento de la moto. -->
+    <path android:fillColor="#F7F4ED"
+        android:pathData="M58,34 L41,56 L51,56 L47,75 L67,50 L56,50 L62,34 Z" />
+</vector>

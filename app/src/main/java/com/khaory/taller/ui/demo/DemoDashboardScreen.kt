@@ -55,6 +55,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.khaory.taller.R
 import com.khaory.taller.ui.login.UserRole
+import com.khaory.taller.ui.mapa.MapaScreen
+import com.khaory.taller.ui.citas.CitasScreen
+import com.khaory.taller.data.location.addressForLocation
+import com.khaory.taller.data.location.cachedStreetAddress
+import com.khaory.taller.data.location.isRecentLocation
+import com.khaory.taller.data.location.rememberStreetAddress
 import com.khaory.taller.ui.theme.BrandIdentity
 import com.khaory.taller.ui.theme.OrangePrimary
 import com.google.firebase.auth.FirebaseAuth
@@ -77,6 +83,8 @@ private enum class ClientTab(val title: String, val icon: ImageVector) {
     CATALOG("Repuestos", Icons.Default.Storefront),
     CART("Carrito", Icons.Default.ShoppingCart),
     ORDERS("Pedidos", Icons.Default.ReceiptLong),
+    APPOINTMENTS("Citas", Icons.Default.EventAvailable),
+    MAP("Ubicación", Icons.Default.Map),
     ACCOUNT("Cuenta", Icons.Default.Person)
 }
 
@@ -84,55 +92,9 @@ private enum class AdminTab(val title: String, val icon: ImageVector) {
     HOME("Resumen", Icons.Default.Dashboard),
     INVENTORY("Inventario", Icons.Default.Inventory2),
     ORDERS("Pedidos", Icons.Default.ReceiptLong),
+    APPOINTMENTS("Citas", Icons.Default.EventAvailable),
+    MAP("Ubicación", Icons.Default.Map),
     ACCOUNT("Cuenta", Icons.Default.Person)
-}
-
-private fun isRecentLocation(location: Location): Boolean {
-    val ageMillis = (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000
-    return ageMillis in 0..300_000
-}
-
-private fun cachedStreetAddress(context: Context, location: Location): String? {
-    val saved = context.getSharedPreferences("delivery_address_cache", Context.MODE_PRIVATE)
-    val savedAt = saved.getLong("savedAt", 0L)
-    val ageMillis = System.currentTimeMillis() - savedAt
-    if (ageMillis !in 0..3_600_000) return null
-    val meters = FloatArray(1)
-    Location.distanceBetween(location.latitude, location.longitude,
-        saved.getFloat("latitude", 0f).toDouble(), saved.getFloat("longitude", 0f).toDouble(), meters)
-    return saved.getString("address", null)?.takeIf { meters[0] <= 30f && it.isNotBlank() }
-}
-
-private fun rememberStreetAddress(context: Context, location: Location, address: String) {
-    context.getSharedPreferences("delivery_address_cache", Context.MODE_PRIVATE).edit()
-        .putFloat("latitude", location.latitude.toFloat())
-        .putFloat("longitude", location.longitude.toFloat())
-        .putString("address", address)
-        .putLong("savedAt", System.currentTimeMillis())
-        .apply()
-}
-
-private suspend fun addressForLocation(context: Context, location: Location): String? {
-    if (!Geocoder.isPresent()) return null
-    val geocoder = Geocoder(context, Locale.forLanguageTag("es-PE"))
-    val matches: List<Address> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        suspendCancellableCoroutine { continuation ->
-            geocoder.getFromLocation(location.latitude, location.longitude, 5,
-                object : Geocoder.GeocodeListener {
-                    override fun onGeocode(addresses: MutableList<Address>) {
-                        if (continuation.isActive) continuation.resume(addresses)
-                    }
-                    override fun onError(errorMessage: String?) {
-                        if (continuation.isActive) continuation.resume(emptyList())
-                    }
-                })
-        }
-    } else {
-        @Suppress("DEPRECATION")
-        withContext(Dispatchers.IO) { geocoder.getFromLocation(location.latitude, location.longitude, 5).orEmpty() }
-    }
-    return matches.firstOrNull { !it.thoroughfare.isNullOrBlank() }
-        ?.getAddressLine(0)?.takeIf { it.isNotBlank() }
 }
 
 @Composable
@@ -175,7 +137,7 @@ fun DemoDashboardScreen(
                 if (isAdmin) AdminTab.entries.forEach { tab ->
                     NavigationBarItem(selected = adminTab == tab, onClick = { adminTab = tab; notice = null },
                         modifier = Modifier.testTag("admin_${tab.name.lowercase()}_tab"),
-                        icon = { Icon(tab.icon, tab.title) }, label = { Text(tab.title) })
+                        alwaysShowLabel = false, icon = { Icon(tab.icon, tab.title) }, label = { Text(tab.title) })
                 } else ClientTab.entries.forEach { tab ->
                     val badge = tab == ClientTab.CART && store.cart.values.sum() > 0
                     NavigationBarItem(selected = clientTab == tab, onClick = { clientTab = tab; notice = null },
@@ -183,7 +145,7 @@ fun DemoDashboardScreen(
                             if (badge) BadgedBox(badge = { Badge { Text(store.cart.values.sum().toString()) } }) {
                                 Icon(tab.icon, tab.title)
                             } else Icon(tab.icon, tab.title)
-                        }, label = { Text(tab.title) })
+                        }, alwaysShowLabel = false, label = { Text(tab.title) })
                 }
             }
         }
@@ -198,21 +160,25 @@ fun DemoDashboardScreen(
                 if (isAdmin) AnimatedContent(adminTab,
                     transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) }, label = "admin-tab") { activeTab ->
                     when (activeTab) {
-                    AdminTab.HOME -> AdminOverview(store, onInventory = { adminTab = AdminTab.INVENTORY },
-                        onOrders = { adminTab = AdminTab.ORDERS })
-                    AdminTab.INVENTORY -> InventoryScreen(store) { notice = it }
-                    AdminTab.ORDERS -> OrdersScreen(store.orders, admin = true, onAdvance = store::advanceOrder)
-                    AdminTab.ACCOUNT -> AccountScreen(email, role, onLogout)
+                        AdminTab.HOME -> AdminOverview(store, onInventory = { adminTab = AdminTab.INVENTORY },
+                            onOrders = { adminTab = AdminTab.ORDERS })
+                        AdminTab.INVENTORY -> InventoryScreen(store) { notice = it }
+                        AdminTab.ORDERS -> OrdersScreen(store.orders, admin = true, onAdvance = store::advanceOrder)
+                        AdminTab.APPOINTMENTS -> CitasScreen(email, admin = true)
+                        AdminTab.MAP -> MapaScreen()
+                        AdminTab.ACCOUNT -> AccountScreen(email, role, onLogout)
                     }
                 } else AnimatedContent(clientTab,
                     transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) }, label = "client-tab") { activeTab ->
                     when (activeTab) {
-                    ClientTab.CATALOG -> CatalogScreen(store, onAdded = { notice = it }, onOpenCart = { clientTab = ClientTab.CART })
-                    ClientTab.CART -> CartScreen(store, email, onMessage = { notice = it }, onOrdered = {
-                        notice = "Pedido creado. Puedes seguirlo aquí."; clientTab = ClientTab.ORDERS
-                    })
-                    ClientTab.ORDERS -> OrdersScreen(store.orders, admin = false)
-                    ClientTab.ACCOUNT -> AccountScreen(email, role, onLogout)
+                        ClientTab.CATALOG -> CatalogScreen(store, onAdded = { notice = it }, onOpenCart = { clientTab = ClientTab.CART })
+                        ClientTab.CART -> CartScreen(store, email, onMessage = { notice = it }, onOrdered = {
+                            notice = "Pedido creado. Puedes seguirlo aquí."; clientTab = ClientTab.ORDERS
+                        })
+                        ClientTab.ORDERS -> OrdersScreen(store.orders, admin = false)
+                        ClientTab.APPOINTMENTS -> CitasScreen(email, admin = false)
+                        ClientTab.MAP -> MapaScreen()
+                        ClientTab.ACCOUNT -> AccountScreen(email, role, onLogout)
                     }
                 }
             }
@@ -283,7 +249,7 @@ private fun CatalogScreen(store: DemoStoreViewModel, onAdded: (String) -> Unit, 
     val categories = listOf("Todos") + store.products.map { it.category }.distinct()
     val filtered = store.products.filter {
         (category == "Todos" || it.category == category) &&
-            (search.isBlank() || it.name.contains(search, ignoreCase = true) || it.category.contains(search, ignoreCase = true))
+                (search.isBlank() || it.name.contains(search, ignoreCase = true) || it.category.contains(search, ignoreCase = true))
     }
     LazyColumn(modifier = Modifier.testTag("catalog_list"),
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
@@ -347,7 +313,7 @@ private fun CatalogScreen(store: DemoStoreViewModel, onAdded: (String) -> Unit, 
 
 @Composable
 private fun CatalogProductCard(product: DemoProduct, store: DemoStoreViewModel,
-    modifier: Modifier = Modifier, onAdded: () -> Unit) {
+                               modifier: Modifier = Modifier, onAdded: () -> Unit) {
     Surface(modifier = modifier.animateContentSize(), shape = RoundedCornerShape(19.dp),
         color = MaterialTheme.colorScheme.surface) {
         Column(Modifier.padding(10.dp)) {
@@ -483,6 +449,10 @@ private fun CartScreen(store: DemoStoreViewModel, email: String, onMessage: (Str
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Total estimado", fontWeight = FontWeight.Bold)
                     Text("S/ ${store.cartTotal()}", color = OrangePrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                }
+                store.exchangeRate?.let { tc ->
+                    Text("≈ US$ ${"%.2f".format(store.cartTotal() / tc)} · T.C. S/ ${"%.3f".format(tc)} por US$",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 }
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(address, { address = it; addressConfirmed = false }, label = { Text("Dirección exacta de entrega") },
@@ -655,8 +625,13 @@ private fun AdminOverview(store: DemoStoreViewModel, onInventory: () -> Unit, on
             Text("Actividad reciente", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             Spacer(Modifier.height(10.dp))
             Text(if (store.orders.isEmpty()) "Cuando un cliente cree un pedido, aparecerá aquí."
-                else "Último pedido: #${store.orders.first().id} · ${store.orders.first().status}",
+            else "Último pedido: #${store.orders.first().id} · ${store.orders.first().status}",
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item {
+            Text("Servicios conectados", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(Modifier.height(10.dp))
+            Text("API REST: ${store.apiStatus}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
         }
     }
 }
@@ -764,7 +739,7 @@ private fun InventoryScreen(store: DemoStoreViewModel, onMessage: (String) -> Un
 
 @Composable
 private fun ProductEditorDialog(product: DemoProduct?, onDismiss: () -> Unit,
-    onSave: (String, String, String, Int, Int, Uri?) -> String?) {
+                                onSave: (String, String, String, Int, Int, Uri?) -> String?) {
     var name by remember(product?.id) { mutableStateOf(product?.name.orEmpty()) }
     var category by remember(product?.id) { mutableStateOf(product?.category.orEmpty()) }
     var description by remember(product?.id) { mutableStateOf(product?.description.orEmpty()) }

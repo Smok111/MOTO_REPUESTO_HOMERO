@@ -16,6 +16,8 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Blob
 import com.google.firebase.firestore.GeoPoint
+import com.khaory.taller.data.remote.Resultado
+import com.khaory.taller.data.remote.RestRepository
 import com.khaory.taller.ui.login.UserRole
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +69,10 @@ class DemoStoreViewModel(application: Application) : AndroidViewModel(applicatio
         private set
     var isCheckingOut by mutableStateOf(false)
         private set
+    var exchangeRate by mutableStateOf<Double?>(null)
+        private set
+    var apiStatus by mutableStateOf("sin consultas todavía")
+        private set
 
     fun connect(uid: String, role: UserRole) {
         if (connectedUid == uid && connectedRole == role) return
@@ -74,6 +80,7 @@ class DemoStoreViewModel(application: Application) : AndroidViewModel(applicatio
         ordersListener?.remove()
         connectedUid = uid
         connectedRole = role
+        refreshExchangeRate()
         products.clear()
         orders.clear()
         cart.clear()
@@ -91,7 +98,7 @@ class DemoStoreViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         val query = if (role == UserRole.ADMIN) db.collection("orders")
-            else db.collection("orders").whereEqualTo("userId", uid)
+        else db.collection("orders").whereEqualTo("userId", uid)
         ordersListener = query.addSnapshotListener { snapshot, error ->
             if (error != null) { message = "No se pudieron cargar los pedidos: ${error.localizedMessage}"; return@addSnapshotListener }
             orders.clear()
@@ -113,6 +120,23 @@ class DemoStoreViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun clearMessage() { message = null }
+
+    /** GET con Retrofit: tipo de cambio PEN/USD. Si falla, simplemente no se muestra el equivalente. */
+    private fun refreshExchangeRate() {
+        viewModelScope.launch {
+            when (val r = RestRepository.tipoCambioPen()) {
+                is Resultado.Exito -> exchangeRate = r.datos
+                is Resultado.Error -> apiStatus = "GET tipo de cambio → ${r.mensaje}"
+            }
+        }
+    }
+
+    private fun logApi(accion: String, r: Resultado<*>) {
+        apiStatus = when (r) {
+            is Resultado.Exito -> "$accion → HTTP ${r.codigoHttp}"
+            is Resultado.Error -> "$accion → ${r.mensaje}"
+        }
+    }
 
     fun addToCart(productId: Int): Boolean {
         val product = products.find { it.id == productId } ?: return false
@@ -190,7 +214,7 @@ class DemoStoreViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun addProduct(name: String, category: String, description: String, price: Int, stock: Int,
-        photoPath: String?): String? {
+                   photoPath: String?): String? {
         if (name.isBlank() || category.isBlank()) return "Completa nombre y categoría."
         if (price <= 0 || stock < 0) return "Revisa el precio y el stock."
         if (photoPath == null) return "Selecciona una foto del repuesto."
@@ -201,22 +225,24 @@ class DemoStoreViewModel(application: Application) : AndroidViewModel(applicatio
                 db.collection("products").document(id.toString()).set(productData(name, category,
                     description, price, stock, photo)).await()
                 message = "Repuesto agregado al inventario."
+                logApi("POST /posts", RestRepository.crearProducto(name.trim(), category.trim(), price, stock))
             } catch (error: Exception) { message = "No se pudo agregar el repuesto: ${error.localizedMessage}" }
         }
         return null
     }
 
     fun updateProduct(id: Int, name: String, category: String, description: String,
-        price: Int, stock: Int, photoPath: String?): String? {
+                      price: Int, stock: Int, photoPath: String?): String? {
         if (name.isBlank() || category.isBlank()) return "Completa nombre y categoría."
         if (price <= 0 || stock < 0) return "Revisa el precio y el stock."
         viewModelScope.launch {
             try {
                 val photo = if (photoPath != null && File(photoPath).exists()) compressPhoto(photoPath)
-                    else products.find { it.id == id }?.photoBytes
+                else products.find { it.id == id }?.photoBytes
                 db.collection("products").document(id.toString()).update(productData(name, category,
                     description, price, stock, photo)).await()
                 message = "Repuesto actualizado."
+                logApi("PUT /posts/{id}", RestRepository.actualizarProducto(id, name.trim(), category.trim(), price, stock))
             } catch (error: Exception) { message = "No se pudo actualizar el repuesto: ${error.localizedMessage}" }
         }
         return null
@@ -228,6 +254,7 @@ class DemoStoreViewModel(application: Application) : AndroidViewModel(applicatio
                 db.collection("products").document(id.toString()).delete().await()
                 cart.remove(id)
                 message = "Repuesto retirado del catálogo."
+                logApi("DELETE /posts/{id}", RestRepository.retirarProducto(id))
             } catch (error: Exception) { message = "No se pudo retirar el repuesto: ${error.localizedMessage}" }
         }
     }
@@ -295,7 +322,7 @@ class DemoStoreViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun productData(name: String, category: String, description: String, price: Int,
-        stock: Int, photoBytes: ByteArray?) = mapOf(
+                            stock: Int, photoBytes: ByteArray?) = mapOf(
         "name" to name.trim(), "category" to category.trim(), "description" to description.trim(),
         "price" to price, "stock" to stock, "photoBytes" to photoBytes?.let(Blob::fromBytes)
     )
